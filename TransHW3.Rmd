@@ -1,0 +1,199 @@
+---
+title: "Transportation Assignment 3"
+author: "Xinya Liu & E Chin Li"
+date: "2023-10-04"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+    theme: readable
+---
+
+# Set up 
+
+```{r setup, include=TRUE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+# Load Libraries
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(kableExtra)
+library(plotly)
+library(tmap)
+
+options(scipen=999)
+options(tigris_class = "sf")
+
+#read_csv
+hh <- read.csv("https://raw.githubusercontent.com/EChinLee/CLPN501_Homework/main/1_Household_Public.csv")
+per <- read.csv("https://raw.githubusercontent.com/EChinLee/CLPN501_Homework/main/2_Person_Public.csv")
+veh <- read.csv("https://raw.githubusercontent.com/EChinLee/CLPN501_Homework/main/3_Vehicle_Public.csv")
+trip <- read.csv("https://raw.githubusercontent.com/EChinLee/CLPN501_Homework/main/4_Trip_Public.csv")
+
+```
+
+# Questions
+## Question 1
+*Draw a random household from the second ten households in your data. If your data frame is named dat, this command will do it for you:* `sort(unique(dat$HH_ID))[sample(11:20, 1)]`
+*Write a brief description of the household. Be sure to include: their income, race, composition, county of residence, and whether they own a car.*
+```{r q1, echo=TRUE, warning=FALSE}
+#Draw a random household from the second ten households in your data. If your data frame is named dat, this command will do it for you: sort(unique(dat$HH_ID))[sample(11:20, 1)]
+set.seed(7)
+ranHH_ID <- sort(unique(hh$HH_ID))[sample(11:20, 1)]
+#Write a brief description of the household. Be sure to include: their income, race, composition, county of residence, and whether they own a car.
+#colnames(hh)
+subset1 <- subset(hh[c(2,28,6)], hh$HH_ID == ranHH_ID)
+subset2 <- head(subset(per[c(16, 18, 65:67)], per$HH_ID == ranHH_ID), 1)
+subset3 <- head(subset(veh[c(4)], veh$HH_ID == ranHH_ID), 1)
+discription <- cbind(subset1, subset2, subset3)
+  kable(discription) %>%
+  kable_styling(full_width = F) %>%
+  footnote(general_title = "\n",
+           general = "Table 1")
+```
+
+## Question 2
+*Describe the daily activities and travel of the household’s members using the trip data.*
+```{r q2, echo=TRUE, message=FALSE, warning=FALSE}
+#Describe the daily activities and travel of the household’s members using the trip data.
+activity <- subset(trip[c(2:4, 15:17, 28:38)], trip$HH_ID == ranHH_ID)
+
+kable(activity) %>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed")) %>%
+  footnote(general_title = "\n",
+           general = "Table 2")
+```
+
+## Question 3
+*Provide an estimate of the total number of bicycle trips represented by the survey data. Note that you should use the Person Weight to make this estimate. This number represents the total number of people each person in the survey is supposed to represent. For example, if a person’s Person Weight is 65, then that person represents 65 people in the Philadelphia region.*
+```{r q3, echo=TRUE, warning=FALSE}
+#Provide an estimate of the total number of bicycle trips represented by the survey data. Note that you should use the Person Weight to make this estimate. This number represents the total number of people each person in the survey is supposed to represent. For example, if a person’s Person Weight is 65, then that person represents 65 people in the Philadelphia region.
+
+sum(subset(trip[c(6)], trip$MODE_AGG == "2"))
+
+```
+
+## Question 4
+*Make a table that shows the mode choice for residents from the county of the household from question 1. Note that you will have to make a choice about how to group the modes together. Note also that I asked for the home county not the origin of a trip county. Look for this in the data dictionary.*
+```{r q4, echo=TRUE, warning=FALSE}
+#Make a table that shows the mode choice for residents from the county of the household from question 1. Note that you will have to make a choice about how to group the modes together. Note also that I asked for the home county not the origin of a trip county. Look for this in the data dictionary. 
+
+ht <- merge(hh,trip, by = "HH_ID")
+countyID <- subset(hh[c(6)], hh$HH_ID == ranHH_ID)
+selectedcounty <- subset(ht, H_COUNTY == countyID ) 
+
+#number
+countymode <- round(table(selectedcounty$MODE_AGG), digits = 3) 
+countymode <- t(countymode)
+kable(countymode) %>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed")) %>%
+  footnote(general_title = "\n",
+           general = "Table 3(Number)")
+
+#share
+selectedcounty <- selectedcounty[!is.na(selectedcounty$MODE_AGG), ]
+countymodeshare <- round(table(selectedcounty$MODE_AGG)/length(selectedcounty$MODE_AGG)*100, digits = 3)
+countymodeshare <- t(countymodeshare)
+kable(countymodeshare) %>%
+  kable_styling(full_width = F, bootstrap_options = c("striped", "hover", "condensed")) %>%
+  footnote(general_title = "\n",
+           general = "Table 4(Share)")
+
+```
+
+## Question 5
+*Make a graphic that shows the relationship between household income and the age of a household’s vehicle for all households. (Hint: merge the household data to the vehicle data with the *`merge()` *command. Use an internet search or type* `?merge` *into the console to learn how to use the command.)*
+```{r q5, echo=TRUE, warning=FALSE}
+#Make a graphic that shows the relationship between household income and the age of a household’s vehicle for all households. (Hint: merge the household data to the vehicle data with the merge() command. Use an internet search or type ?merge into the console to learn how to use the command.)
+
+hv <- merge(hh[c(2,28)],veh[c(2,9)], by = "HH_ID") %>% 
+  filter(YEAR < 2050) %>% 
+  filter(INCOME < 15) %>% 
+  mutate(AGE = 2023 - YEAR)
+
+boxplot(AGE~INCOME,
+data=hv,
+outline= FALSE,
+main="Household Income as a Function of Age of Household Vehicle",
+xlab="Income",
+ylab="Age",
+col="#a2d5c6",
+border="#077b8a"
+)
+  
+```
+
+## Question 6 
+*Make a table or graphic that shows the relationship between household income and mode choice for all households. (The* `boxplot()` *command is a nice option, but a table is just fine.) Again, you must choose how to combine modes.*
+```{r q6, echo=TRUE, warning=FALSE}
+#Make a table or graphic that shows the relationship between household income and mode choice for all households. (The boxplot() command is a nice option, but a table is just fine.) Again, you must choose how to combine modes.
+
+Mode<-trip[c(2,38)]
+Income<-hh[c(2,28)]
+Income_Mode <- merge(Mode, Income, by="HH_ID") %>% 
+  filter(INCOME < 11) %>%
+  filter(!is.na(MODE_AGG))
+
+mode_income_table <- table(Income_Mode$MODE_AGG,Income_Mode$INCOME)
+mode_income_df <- as.data.frame.matrix(mode_income_table)
+
+colnames(mode_income_df) <- c(
+  "$0 to $9,999",
+  "$10,000 to $24,999",
+  "$25,000 to $34,999",
+  "$35,000 to $49,999",
+  "$50,000 to $74,999",
+  "$75,000 to $99,999",
+  "$100,000 to $149,999",
+  "$150,000 to $199,999",
+  "$200,000 to $249,999",
+  "$250,000 or more"
+)
+rownames(mode_income_df) <- c(
+  "Walk",
+  "Bike",
+  "Private Vehicle",
+  "Private Transit",
+  "Public Transit",
+  "School Bus",
+  "Other"
+)
+
+kable(mode_income_df)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed")) %>%
+  footnote(general_title = "\n",
+           general = "Table 5")
+
+custom_palette <- c("#a2d5c6", "#077b8a", "#ffa07a", "#ff6347", "#ff4500",
+                    "#00CED1", "#20B2AA", "#008B8B", "#5F9EA0", "#008080")
+
+ggplot(Income_Mode, aes(x = MODE_AGG, fill = factor(INCOME))) +
+  geom_bar(position = "stack") +
+  labs(
+    title = "Relationship between Household Income and Mode Choice",
+    x = "Mode",
+    y = "Count",
+    fill = "Income"
+  ) +
+  scale_fill_manual(values = custom_palette) +
+  theme_minimal()
+
+```
+
+## Question 7
+*The last three questions reference the output of an OLS regression model predicting daily boardings at US light rail stations.*
+
+### a	
+*According to the regression model, each additional job within a half mile of a station correlates with how many more daily transit riders per day?*
+
+### b
+*If there are an average of 1,793 boardings per station and 3,130 jobs around each station, what percentage increase in ridership does the model predict due to a doubling of the number of jobs around a station (hint: elasticity).*
+
+### c
+*Describe the relationship between AM peak service frequency and light rail boardings.*
+
