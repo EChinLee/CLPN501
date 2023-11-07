@@ -1,0 +1,76 @@
+---
+title: "Transportation Assignment 4"
+author: "Xinya Liu & E Chin Li"
+date: "2023-10-18"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=TRUE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+# Load Libraries
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(kableExtra)
+library(plotly)
+library(tmap)
+library(ggplot2)
+
+options(scipen=999)
+options(tigris_class = "sf")
+
+#read_csv
+trip <- read.csv("https://raw.githubusercontent.com/EChinLee/CLPN501_Homework/main/4_Trip_Public.csv")
+per <- read.csv("https://raw.githubusercontent.com/EChinLee/CLPN501_Homework/main/2_Person_Public.csv")
+hh <- read.csv("https://raw.githubusercontent.com/EChinLee/CLPN501_Homework/main/1_Household_Public.csv")
+
+```
+
+```{r Q6}
+#total traveling time
+sum(trip$Model_TravTime * trip$P_WEIGHT, na.rm = TRUE) #it doesn't make sense!
+#average traveling time
+weighted.mean(trip$Model_TravTime, trip$P_WEIGHT, na.rm = TRUE)
+```
+
+```{r Q7}
+bike <- trip %>% 
+  filter(trip$MODE_AGG == "2")
+#bike total traveling time
+sum(bike$Model_TravTime * bike$P_WEIGHT, na.rm = TRUE) #it doesn't make sense!
+#bike average traveling time
+weighted.mean(bike$Model_TravTime, bike$P_WEIGHT, na.rm = TRUE)
+#percent account
+round(sum(bike$Model_TravTime * bike$P_WEIGHT, na.rm = TRUE)/ sum(trip$Model_TravTime * trip$P_WEIGHT, na.rm = TRUE)*100,3)
+```
+
+```{r}
+per <- per %>% filter(per$HOURS < 997 & is.na(per$HOURS) == FALSE)
+hh <- hh %>% filter(hh$INCOME < 11 & is.na(hh$INCOME) == FALSE) %>% 
+  mutate(INCOME_quant = case_when(
+         INCOME == 1  ~ 4999.5,
+         INCOME == 2  ~ 17499.5,
+         INCOME == 3  ~ 29999.5,
+         INCOME == 4  ~ 42499.5,
+         INCOME == 5  ~ 62499.5,
+         INCOME == 6  ~ 87499.5,
+         INCOME == 7  ~ 124999.5,
+         INCOME == 8  ~ 174999.5,
+         INCOME == 9  ~ 224999.5,
+         TRUE~ 274999.5))
+
+ti <- merge(hh, per, by = "HH_ID") %>% select(HOURS, INCOME_quant, HH_ID) 
+
+ti <- ti %>% 
+  mutate(wage = INCOME_quant / (HOURS*48))
+
+data <- merge(trip, ti, by = "HH_ID")%>% select(Model_TravTime, wage, HH_ID)
+sum(data$wage/2*data$Model_TravTime,na.rm = TRUE)
+```
+
