@@ -1,0 +1,334 @@
+---
+title: "Transportation HW 5"
+author: "E Chin Li & Xinya Liu"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: tactile
+    highlight: github
+---
+
+# Set Up and Q1-3 Data Loading
+
+```{r setup}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+options(scipen=10000000)
+
+library(tidyverse)
+library(kableExtra)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(lubridate)
+library(scales)
+library(stargazer)
+library(gridExtra)
+library(patchwork)
+library(ggcorrplot)
+
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+palette2 <- c("#FA8072","#D8BFD8")
+
+hh <- read.csv("https://raw.githubusercontent.com/EChinLee/CLPN501_Homework/main/1_Household_Public.csv")
+per <- read.csv("https://raw.githubusercontent.com/EChinLee/CLPN501_Homework/main/2_Person_Public.csv")
+veh <- read.csv("https://raw.githubusercontent.com/EChinLee/CLPN501_Homework/main/3_Vehicle_Public.csv")
+trip <- read.csv("https://raw.githubusercontent.com/EChinLee/CLPN501_Homework/main/4_Trip_Public.csv")
+
+```
+
+# Q1
+
+According to Fig 1, the distribution of trip-making is concentrated below 10, and roughly **decreasing** from 0 to 20, with the exception of one-trip population group. The peaks occur at two-trip and non-trip groups: approximately 6000 people in Philly made two trips in the survey, which has the highest frequency, following by nearly 3000 people made no trip. The high kurtosis and relatively sharp peaks indicate that the distribution is particularly concentrated at the peaks.
+
+```{r Q1, message=FALSE, warning=FALSE}
+ggplot(per, aes(x = P_TOT_TRIPS)) +
+  geom_histogram(binwidth = 1, fill = "#FA8072", color = "#D8BFD8") +
+  labs(title = "Fig 1: Total Number of Trips Histogram",
+       x = "Total Trips",
+       y = "Frequency") +
+  plotTheme()
+```
+
+# Q2
+
+Through statistical calculations, the total number of people who did not make trip participating in the survey on that day is **3,625**. Among them, the proportion of White individuals is significantly higher than other ethnicities. The age group between 45-75 years old has the highest representation, while the age group between 6 and 17 years old has the lowest representation. The population with moderate income levels constitutes a relatively high percentage of non-participants, with a concentration in the range of $50,000 to 199,999.
+
+```{r Q2, fig.height=4, fig.width=11, message=FALSE, warning=FALSE}
+per$notravel <- as.integer(per$P_TOT_TRIPS == 0)
+dataph <- merge(per, hh, by = "HH_ID", all = TRUE)
+data <- merge(dataph, trip, by = "PERSON_ID", all = TRUE)
+sum(per$notravel)
+
+sumdata <- dataph %>% 
+  filter(notravel == 1) %>% 
+  select(RACE, INCOME, AGECAT) %>% 
+  rename(AGE = AGECAT) %>% 
+  summary()
+
+kable(sumdata, caption = "Features of NoTravel Population") %>% 
+  kable_styling() %>%
+  footnote(general_title = "\n", general = "Table 1")
+
+dataph %>%
+  dplyr::select(notravel, RACE, AGECAT, INCOME) %>%
+  gather(Variable, value, -notravel) %>%
+  count(Variable, value, notravel) %>%
+  filter(notravel == 1) %>%
+  ggplot(aes(x = factor(value), y = n, fill = factor(notravel))) +   
+    geom_bar(position = "dodge", stat = "identity") +
+    facet_wrap(~Variable, scales = "free", ncol = 3, labeller = labeller(Variable = c(
+      `RACE` = "Race",
+      `AGECAT` = "Age",
+      `INCOME` = "Income"
+    ))) +
+    scale_fill_manual(values = palette2) +
+    labs(x = "NoTravel", y = "Count", title = "Fig 2: Features of NoTravel Population") +
+    plotTheme() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+# Q3
+
+It can be seen from Table 2 that the main three reasons for making no trip are **no reason to travel**, **personally sick**, and **worked around home (not for pay)**, which account for 37.3%, 9.4% and 9.3% of the total, respectively. Only 0.2% people reported as **don't know**. Other reasons like caretaking, weather or vocation range from 0.5% to 9%. Also, there's roughly 8.5% people refused to answer.
+
+```{r Q3, message=FALSE, warning=FALSE}
+reason_mapping <- c(
+  "1" = "Personally sick",
+  "2" = "Vacation or personal day",
+  "3" = "Caretaking sick kids",
+  "4" = "Caretaking sick other",
+  "5" = "Homebound elderly or disabled",
+  "6" = "Worked at home for pay",
+  "7" = "Not scheduled to work",
+  "8" = "Worked around home (not for pay)",
+  "9" = "No transportation available",
+  "10" = "Out of Delaware Valley region",
+  "11" = "Weather",
+  "12" = "No reason to travel",
+  "97" = "Other",
+  "98" = "Don't know",
+  "99" = "Refused"
+)
+
+sumreason <- data %>% filter(!is.na(WHYNO))
+
+sumreason <- sumreason %>% 
+  mutate(WHYNO = recode(WHYNO, !!!reason_mapping)) %>%
+  group_by(WHYNO) %>%
+  summarize(Count = n()) %>%
+  mutate(Percentage = round((Count / sum(Count)) * 100, 2))
+
+kable(sumreason, caption = "Percent of NoTravel Population by Reason") %>% 
+  kable_styling() %>%
+  footnote(general_title = "\n", general = "Table 2")
+
+```
+
+# Q4-10 Data Loading
+
+```{r Data_Loading, message=FALSE, warning=FALSE}
+load("/Users/liyq2019/Downloads/UPenn/TransHW/data.Rda")
+dat <- data_train
+rm(data_train)
+str(dat)
+
+labels <- c("Average weekday transit ridership (average of boardings and alightings)",
+            "Trains in and out at the AM peak", "Number of bus connections within a quarter mile",
+            "Park and ride dummy", "Commuter rail dummy", "terminal station", "airport station",
+            "BRT station", "light rail station", "heavy rail station", "multimodal transfer center", 
+            "average distance to next station stops", "network distance to central business district",
+            "jobs accessible within 30m drive", "Population residing within a half mile", "jobs within a half mile",
+            "Unique CBSA id", "CBSA name")
+labels <- as.data.frame(cbind(names(dat),labels))
+
+```
+
+# Q4
+
+In Fig 2, the histogram depicting heavy rail ridership follows a roughly Poisson distribution. It can be observed that the data is more concentrated for ridership under 50,000, or 2500 more precisely, and the data follows a roughly constant decline trend after the peak occurring around 3000 - 9000. The tail of Fig 2 is relatively long, but there aren't many extremes.
+
+In Fig 3,  the natural logarithm of heavy rail ridership, follows a normal distribution, with most ridership data spread around the mean and fewer extreme low or high frequency. From the data, it is evident that the frequency values are highest for log ridership values between 8 and 9. There is only one peak on the histogram, which does not show different subgroups, and also indicates that the data distribution is relatively concentrated. Additionally, data distribution can be described as relatively symmetrical since the histogram approximates a normal distribution.
+
+```{r Q4, message=FALSE, warning=FALSE}
+dathr <- dat %>% filter(hrt_d == 1)	
+ggplot(dathr, aes(x = rider)) +
+  geom_histogram(binwidth = 3000, fill = "#FA8072", color = "#D8BFD8") +
+  labs(title = "Fig 3: Heavy Rail Ridership Histogram",
+       x = "Ridership",
+       y = "Frequency") +
+  plotTheme()
+
+ggplot(dathr, aes(x = log(rider))) +
+  geom_histogram(binwidth = 0.1, fill = "#FA8072", color = "#D8BFD8") +
+  labs(title = "Fig 4: Natural Log of Heavy Rail Ridership Histogram",
+       x = "Log Ridership",
+       y = "Frequency") +
+  plotTheme()
+```
+
+# Q5 & Q6
+
+The scatter plot displays the relationship between heavy rail ridership (y-axis) and the number of jobs within half a mile of stations (x-axis). The points on the scatter plot move upward from left to right, indicating a positive correlation. This means that as the number of jobs within half a mile of stations increases, heavy rail ridership also tends to increase. Moreover, it's clear that most plots aggregate below x = 2500 and y = 5000, indicates that extreme values may cause significant interference when drawing the trendline.
+
+This image is clearer and the distribution of points is more scattered compared to the 5th question. This can help us more effectively discern the relationship depicted in this image as well as reduce the interference produced by extreme values. The points on the scatter plot show a gradually upward trend from left to right, indicating a more pronounced positive correlation. Since the distribution of plots seems more random comparing to Fig 5, the trendline is also more reliable for analysis.
+
+```{r Q5, message=FALSE, warning=FALSE}
+ggplot(dathr, aes(x= jobs_halfmile, y = rider)) +
+  geom_point(size = 0.5, color = "#FFA07A") +  
+  geom_smooth(method='lm', formula= y~x, lwd=0.5, color = "#FA8072") +
+  labs(title = "Fig 5: Scatter Plot of Heavy Rail Ridership against Jobs within a Half Mile of Stations") +
+  plotTheme()
+
+ggplot(dathr, aes(x= log(jobs_halfmile), y = log(rider))) +
+  geom_point(size = 1, color = "#FFA07A") +  
+  geom_smooth(method='lm', formula= y~x, lwd=0.5, color = "#FA8072") +
+  labs(title = "Fig 6: Scatter Plot of Heavy Rail Ridership against Jobs within a Half Mile of Stations") +
+  plotTheme()
+```
+
+# Q7 & Q8
+
+- Min  = -49380
+- Median = -1034 
+- Max = 140572
+- Adjusted R-squared = 0.4139
+
+We conducted an initial regression and obtained the following results. All indicators except Airport Station show statistically significant correlations with ridership with p < 0.01. The adjusted R-squared value is 0.414, indicating that the model can explain 41.4% of variations in sale price. The standard errors for predicting the Terminal Station and Airport Station are greater than 1000, which may affect the precision of the model, but this is the optimal result we achieved so far.
+
+To be more specific, we can roughly infer that there isn't a statistically significant relationship between the Airport Station and ridership based on the p-value (P > 0.05). But in terms of correlations, we observe that the population within a half-mile and the Airport Station have a negative correlation. The relationship between jobs within a half-mile and transit ridership is the most closely and significantly related (T = 23.7532263, P < 0.01). Also, there's a positive and strong correlation between transit ridership and population within a half-mile (T = 7.6386084, P < 0.01), and Terminal Station (T = 4.6603015, P < 0.01). Other independent variables show slight or no significant relationship with each other statistically.
+
+```{r Q7, message=FALSE, warning=FALSE}
+reg1 <- lm(rider ~ ., data = dat %>% dplyr::select(rider, jobs_halfmile, pop_halfmile, terminal_d, airport_d))
+summary_reg1 <- summary(reg1)
+coefficients_table <- summary_reg1$coefficients
+
+new_variable_names <- c(
+  "Intercept",
+  "Job Half Mile",
+  "Population Half Mile",
+  "Terminal Station Buffer",
+  "Airport Station Buffer"
+)
+
+coefficients_df <- data.frame(
+  Variable = new_variable_names,
+  Estimate = coefficients_table[1:5, "Estimate"],
+  Std.Error = coefficients_table[1:5, "Std. Error"],
+  t_value = coefficients_table[1:5, "t value"],
+  Pr = coefficients_table[1:5, "Pr(>|t|)"]
+)
+
+coefficients_df %>%
+  kable(row.names = FALSE) %>%
+  kable_styling() %>%
+  footnote(general_title = "\n", general = "Table 3")
+
+data_long <- dat %>% dplyr::select(rider, jobs_halfmile, pop_halfmile) %>% 
+  pivot_longer(cols = -rider, # everything except measurement
+               names_to = "Type", # categorizes all quantitative variables into Type
+               values_to = "Number") # the name of values is Number
+
+data_long %>%
+  ggplot(aes(x= Number, y = rider)) +
+  geom_point(size = 0.01, color = "#FFA07A") +  
+  geom_smooth(method='lm', formula= y~x, lwd=0.5, color = "#FA8072") +
+  facet_wrap(~ Type, scales = "free", labeller= labeller(Type = c(
+    `jobs_halfmile` = "Jobs Half Mile",
+    `pop_halfmile` = "Population Half Mile"
+    )))  +
+  labs(title = "Fig 7: Scatter Plot of Ridership over Numeric Predicted Variables") +
+  theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=6),
+        axis.text.y=element_text(size=6), 
+        axis.title=element_text(size=8), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, size=0.8))
+
+varibles <- dat %>% 
+  dplyr::select(rider, jobs_halfmile, pop_halfmile, terminal_d, airport_d)
+
+ggcorrplot(
+  round(cor(varibles), 1), 
+  p.mat = cor_pmat(varibles),
+  colors = c("#9370DB", "white", "#FA8072"),
+  type="lower",
+  insig = "blank") +  
+  labs(title = "Fig 8: Correlation Matrix for Variables") +
+  theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=6),
+        axis.text.y=element_text(size=6), 
+        axis.title=element_text(size=8))
+```
+
+# Q9
+
+According to the residual plot, the scatter points exhibit divergent and irregular patterns around y=0. Most points are concentrated in the upper part, suggesting that the original model does not have a linear relationship. The distribution trend of scatter points slants upwards, indicating an underestimation tendency to some extent.
+
+```{r Q9, message=FALSE, warning=FALSE}
+residuals_df <- data.frame(Residuals = resid(reg1), Fitted = fitted(reg1))
+ggplot(residuals_df, aes(x = Fitted, y = Residuals)) +
+  geom_point(size = 1, color = "#FFA07A") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "#FA8072") +
+  labs(title = "Fig 8: Residual Plot for Regression",
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_light() +   
+  theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=6),
+        axis.text.y=element_text(size=6), 
+        axis.title=element_text(size=8))
+```
+
+# Q10
+
+- Min  = -47444
+- Median = -566 
+- Max = 139666
+- Adjusted R-squared = 0.442
+
+Comparing across two regression models, we see that baseline regression only account 41.4% of the variance in ridership, and this figure rise to 44.2% in new regression, suggesting a significant improvement. This may due to the specific features of our selected research area. One possible reason is that stations carry higher ridership may also have large demand for transit to heavy rail, so adding heavy rail buffer makes it more reliable in regression. Also, heavy rail networks are frequently designed to cover key areas and serve as a backbone of public transportation systems, so ridership between stations within and beyond its coverage may also show significant difference.
+
+```{r Q10, message=FALSE, warning=FALSE}
+
+reg2 <- lm(rider ~ ., data = dat %>% dplyr::select(rider, jobs_halfmile, pop_halfmile, terminal_d, airport_d, hrt_d))
+summary_reg2 <- summary(reg2)
+coefficients_table <- summary_reg2$coefficients
+
+new_variable_names <- c(
+  "Intercept",
+  "Job Half Mile",
+  "Population Half Mile",
+  "Terminal Station Buffer",
+  "Airport Station Buffer",
+  "Heavy Railway Station Buffer"
+)
+
+coefficients_df <- data.frame(
+  Variable = new_variable_names,
+  Estimate = coefficients_table[1:6, "Estimate"],
+  Std.Error = coefficients_table[1:6, "Std. Error"],
+  t_value = coefficients_table[1:6, "t value"],
+  Pr = coefficients_table[1:6, "Pr(>|t|)"]
+)
+
+coefficients_df %>%
+  kable(row.names = FALSE) %>%
+  kable_styling() %>%
+  footnote(general_title = "\n", general = "Table 4")
+
+data_long <- dat %>% dplyr::select(rider, jobs_halfmile, pop_halfmile) %>% 
+  pivot_longer(cols = -rider, # everything except measurement
+               names_to = "Type", # categorizes all quantitative variables into Type
+               values_to = "Number") # the name of values is Number
+
+
+```

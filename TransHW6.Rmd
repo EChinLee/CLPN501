@@ -1,0 +1,117 @@
+---
+title: "Transportation Assignment 6"
+author: "E Chin Li & Xinya Liu"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse) 
+library(sf)
+```
+
+```{r data_loading, message=FALSE, warning=FALSE}
+load("/Users/liyq2019/Downloads/UPenn/TransHW/HW6/TS2.1TimeSeriesOpExpSvcModeTOS2021.Rda")
+dat <- NTD.ts %>% filter(PMT != 0 & !is.na(PMT)) %>% subset(Year == 2019)
+```
+
+# 1.	Estimate the average of the following indicators for the nation’s light rail, heavy rail, commuter rail, and bus systems in 2019 (be careful to exclude systems that do not operate the modes in question or that report zero PMT):
+
+## a.	Passenger miles (PMT) per unlinked passenger trip (UPT)
+
+```{r 1a, message=FALSE, warning=FALSE}
+dat$PMT_UPT <- dat$PMT/ dat$UPT
+round(mean(dat$PMT_UPT[dat$Mode == "LR"]),4)
+round(mean(dat$PMT_UPT[dat$Mode == "HR"]),4)
+round(mean(dat$PMT_UPT[dat$Mode == "MB"]),4)
+round(mean(dat$PMT_UPT[dat$Mode == "CR"]),4)
+```
+
+## b.	Passenger miles per directional route mile (DRM)
+
+```{r 1b, message=FALSE, warning=FALSE}
+dat$PMT_DRM <- dat$PMT/ dat$DRM
+mean(dat$PMT_DRM[dat$Mode == "LR"])
+mean(dat$PMT_DRM[dat$Mode == "HR"])
+mean(dat$PMT_DRM[dat$Mode == "MB"])
+mean(dat$PMT_DRM[dat$Mode == "CR"])
+```
+
+## c.	Fare revenue per passenger mile (note that this is an estimate of how much people pay for each mile of service)
+
+```{r 1c, message=FALSE, warning=FALSE}
+dat$FARES_PMT <- dat$FARES/ dat$PMT 
+dat <- dat %>% filter(!is.na(FARES))
+round(mean(dat$FARES_PMT[dat$Mode == "LR"]),4)
+round(mean(dat$FARES_PMT[dat$Mode == "HR"]),4)
+round(mean(dat$FARES_PMT[dat$Mode == "MB"]),4)
+round(mean(dat$FARES_PMT[dat$Mode == "CR"]),4)
+```
+
+## d.	Fare recovery ratio (total fare revenue divided by total operating costs
+
+```{r 1d, message=FALSE, warning=FALSE}
+dat$FARES_OPEXP_TOTAL <- dat$FARES/ dat$OPEXP_TOTAL
+round(mean(dat$FARES_OPEXP_TOTAL[dat$Mode == "LR"]),4)
+round(mean(dat$FARES_OPEXP_TOTAL[dat$Mode == "HR"]),4)
+round(mean(dat$FARES_OPEXP_TOTAL[dat$Mode == "MB"]),4)
+round(mean(dat$FARES_OPEXP_TOTAL[dat$Mode == "CR"]),4)
+```
+
+## e.	Average speed (vehicle revenue miles divided by vehicle revenue hours). (Rail modes only.)
+
+```{r 1e, message=FALSE, warning=FALSE}
+dat$VRM_VRH <- dat$VRM/ dat$VRH
+round(mean(dat$VRM_VRH[dat$Mode == "LR"]),4)
+round(mean(dat$VRM_VRH[dat$Mode == "HR"]),4)
+round(mean(dat$VRM_VRH[dat$Mode == "CR"]),4)
+```
+
+# 2.	Calculate the fare recovery ratio for all nation’s light rail, heavy rail, commuter rail, and bus systems in 201\9 (i.e., the average for the mode instead of the average fare recovery ratio of the different transit agencies.) Compare this figure to the fare recovery ratios estimated in question 1 (average by agency). Discuss any differences.
+
+```{r 2, message=FALSE, warning=FALSE}
+round(sum(dat$FARES[dat$Mode == "LR"])/sum(dat$OPEXP_TOTAL[dat$Mode == "LR"]),4)
+round(sum(dat$FARES[dat$Mode == "HR"])/sum(dat$OPEXP_TOTAL[dat$Mode == "HR"]),4)
+round(sum(dat$FARES[dat$Mode == "MB"])/sum(dat$OPEXP_TOTAL[dat$Mode == "MB"]),4)
+round(sum(dat$FARES[dat$Mode == "CR"])/sum(dat$OPEXP_TOTAL[dat$Mode == "CR"]),4)
+```
+
+ - Light Rail (LR) yielded a FRR of **0.2091** through the first method and **0.2046** through the second method. The FRRs for the light rail system are relatively close in both methods, and the differences may stem from variations in specific data among different transportation agencies.
+
+ - Heavy Rail (HR) obtained a FRR of **0.3920** through the first method and **0.6085** through the second method. There is a significant disparity in the FRR for the heavy rail system between the two methods. This could be attributed to the second method combining the data for all heavy rail systems, some of which might have higher FRR, leading to an elevated average.
+ 
+ - Bus (MB) resulted in a FRR of **0.1739** through the first method and **0.2122** through the second method. The FRR for bus systems is relevantly higher when using the second method, and the differences may arise from variations in the serving patterns of different bus agencies. Some agencies might be more successful in achieving higher fare recovery due to factors such as higher ridership, efficient operations, or different fare structures.
+ 
+ - Commuter Rail (CR) yielded a FRR of **0.3618** through the first method and **0.5042** through the second method. There is a significant difference in the FRR for commuter rail systems between the two methods. This might be because the second method aggregates the data for all commuter rail systems, some of which may have higher FRR, causing a notable impact on the overall average.
+ 
+The reason for the data disparities is that different transportation agencies may exhibit substantial differences in fare recovery ratios, leading to variations in the averages obtained through the two methods. The differences based on system type arise because the second method consolidates all agencies, potentially resulting in a greater influence from agencies with higher fare recovery ratios.
+
+ |       |  LR    |  HR     |  MB      |  CR      |
+ | ----- | ------ | ------  | ------   | -------- |
+ | 1d    | 0.2091 |  0.3920 |   0.1739 |  0.3618  |
+ | 2     | 0.2046 |  0.6085 |   0.2122 |  0.5042  |
+
+# 3.	The Los Angeles Metropolitan Area has multiple providers of public transportation. Plot the fare recovery ratio for the Los Angeles MTA (TRS ID 90154) and the Southern California Regional Rail Authority (TRS ID 90151) for light rail, heavy rail, commuter rail, and bus from 2002 to 2021. There should be a separate line for each mode displayed on one graph. Note that there are two bus services for the MTA. One is directly operated (Service == “DO”); the other is privately provided (Service == “PT”). Plot each separately.
+
+```{r 3, message=FALSE, warning=FALSE}
+dat <- NTD.ts %>% subset(Year > 2001 & Year < 2022)  %>% subset(NTD.ID == 90154 | NTD.ID == 90151)
+dat$Mode[dat$Mode == "MB" & dat$Service == "PT"] <- "MB_PT"
+dat$Mode[dat$Mode == "MB" & dat$Service == "DO"] <- "MB_DO"
+dat$Mode[dat$Mode == "CR" & dat$NTD.ID == 90151 & dat$Service == "PT"] <- "CR(SCRRA)"
+dat$FARE_RECOVERY_RATIO <- dat$FARES/ dat$OPEXP_TOTAL
+dat <- subset(dat, Mode == "LR" | Mode == "CR(SCRRA)" |Mode == "HR" | Mode == "MB_PT" | Mode == "MB_DO")
+
+my_palette <- c("#003049", "#D62828", "#F77F00", "#FCBF49", "#EAE2B7")
+
+ggplot(dat, aes(x = Year, y = FARE_RECOVERY_RATIO, color = Mode)) +
+  geom_line(size = 1) +
+  labs(title = "Fare Recovery Ratio for Public Transportation in Los Angeles Over Years",
+       x = "Year",
+       y = "Fare Recovery Ratio") +
+  scale_color_manual(values = my_palette) +
+  theme_minimal() 
+```
+
+
